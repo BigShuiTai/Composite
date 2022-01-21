@@ -208,7 +208,7 @@ class Composite:
             elif img1.shape < img2.shape:
                 img1 = cv2.resize(img1, img2.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B = self.cv_split(img2, 'bgr'), self.cv_split(img1, 'bgr')
+        color_A, color_B = self.cv_split(img1, 'bgr'), self.cv_split(img2, 'bgr')
         r, g, b = color_A['r'], color_A['g'], color_A['b']
         r1, g1, b1 = color_B['r'], color_B['g'], color_B['b']
         # merge image
