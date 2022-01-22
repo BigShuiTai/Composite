@@ -6,16 +6,16 @@ matplotlib.use("agg")
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.2'
+__version__ = '0.2.1'
 
 '''
-Composite Module by BigShuitai version 0.2
+Composite Module by BigShuitai version 0.2.1
 It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, and Added-background PVIS Composite
 '''
 
 Image.MAX_IMAGE_PIXELS = 2300000000
 
-class Composite:
+class Composite(object):
     def __init__(self, figsize=(10,10), dpi=200):
         self.method_imread = dict(rgb=cv2.COLOR_BGR2RGB, bgr=cv2.IMREAD_COLOR, bgr2=cv2.COLOR_RGB2BGR, rgba=cv2.COLOR_BGRA2RGBA, bgra=cv2.COLOR_RGBA2BGRA)
         self.method_split = dict(rgb='rgb', bgr='bgr', rgba='rgba', bgra='bgra')
@@ -26,6 +26,15 @@ class Composite:
         self.bkg_file = 'nasa.png'
         self.dpi = dpi
     
+    def set_mapsize(self, size):
+        self.mapsize = (21600, 10800) if size is None else size
+    
+    def set_bkg_file(self, file):
+        self.bkg_file = 'nasa.png' if file is None else file
+    
+    def set_central_longitude(self, longitude):
+        self.central_longitude = 0 if longitude is None else longitude
+    
     @staticmethod
     def _calc_figsize(self, georange):
         DEFAULT_WIDTH = 10
@@ -34,6 +43,7 @@ class Composite:
         figsize = (DEFAULT_WIDTH, DEFAULT_WIDTH * ratio)
         return figsize
     
+    @staticmethod
     def convert(self, latlon, intro):
         '''
         @parameter latlon: latitude or longitude, int / float type
@@ -83,15 +93,6 @@ class Composite:
             color = ()
         return color
     
-    def set_mapsize(self, size):
-        self.mapsize = (21600, 10800) if size is None else size
-    
-    def set_bkg_file(self, file):
-        self.bkg_file = 'nasa.png' if file is None else file
-    
-    def set_central_longitude(self, longitude):
-        self.central_longitude = 0 if longitude is None else longitude
-    
     def PIL_to_CV(self, PIL_img, method=None):
         '''
         @parameter PIL_img: PIL class
@@ -121,6 +122,7 @@ class Composite:
         @parameter C15: channel 15 (or similar) data
         return type: numpy.ndarray of X, Y, Z data
         '''
+        # composite formula by @Carl & @hhui-mt
         sst = 30 * np.cos(lats * np.pi / 180)
         te = (C7[:, 0:-1] - sst[:, 0:-1] + 4.5) / (C13[:, 1:] - sst[:, 1:]) * 0.8
         te2 = (C13[:, 0:-1] - C15[:, 1:]) * 1.25
@@ -133,11 +135,12 @@ class Composite:
         data = te
         return lons, lats, data
     
-    def pcolor_composite(self, pvisImage=None, infraredImage=None, resize=1, filename=None):
+    def pcolor_composite(self, pvisImage=None, infraredImage=None, resize=1, invert=False, filename=None):
         '''
         @parameter pvisImage: PVIS image for compositing
         @parameter infraredImage: IR image for compositing
         @parameter resize: resize image
+        @parameter invert: invert pre-load image for compositing correctly
         @parameter filename: if it is not none, it will be the target file name for saving image
         return type: numpy.ndarray if ```filename``` is none, or boolen
         '''
@@ -151,6 +154,12 @@ class Composite:
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
+            if invert:
+                rgb = ima.split()
+                if len(rgb) == 4:
+                    r, g, b, a = rgb
+                    ima = Image.merge('RGB', (r, g, b))
+                ima = ImageOps.invert(ima)
             img1 = self.PIL_to_CV(ima, 'bgr2')
             
             # ir
@@ -161,37 +170,33 @@ class Composite:
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
+            if invert:
+                rgb = ima.split()
+                if len(rgb) == 4:
+                    r, g, b, a = rgb
+                    ima = Image.merge('RGB', (r, g, b))
+                ima = ImageOps.invert(ima)
             img2 = self.PIL_to_CV(ima, 'bgr2')
         elif isinstance(pvisImage, str) and isinstance(infraredImage, str):
             if os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
                 # pvis
                 ima = Image.open(pvisImage)
-                # transform image
-                f, ax = plt.subplots(figsize=self.figsize)
-                plt.axis('off')
-                ax.imshow(ima)
-                f.canvas.draw()
-                plt.clf()
-                # Get the RGBA buffer from the figure
-                w, h = f.canvas.get_width_height()
-                buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
-                buf.shape = (w, h, 3)
-                ima = Image.frombytes("RGB", (w, h), buf.tostring())
+                if invert:
+                    rgb = ima.split()
+                    if len(rgb) == 4:
+                        r, g, b, a = rgb
+                        ima = Image.merge('RGB', (r, g, b))
+                    ima = ImageOps.invert(ima)
                 img1 = self.PIL_to_CV(ima, 'bgr2')
                 
                 # ir
                 ima = Image.open(infraredImage)
-                # transform image
-                f, ax = plt.subplots(figsize=self.figsize)
-                plt.axis('off')
-                ax.imshow(ima)
-                f.canvas.draw()
-                plt.clf()
-                # Get the RGBA buffer from the figure
-                w, h = f.canvas.get_width_height()
-                buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
-                buf.shape = (w, h, 3)
-                ima = Image.frombytes("RGB", (w, h), buf.tostring())
+                if invert:
+                    rgb = ima.split()
+                    if len(rgb) == 4:
+                        r, g, b, a = rgb
+                        ima = Image.merge('RGB', (r, g, b))
+                    ima = ImageOps.invert(ima)
                 img2 = self.PIL_to_CV(ima, 'bgr2')
             else:
                 return False
@@ -279,7 +284,7 @@ class Composite:
             img2 = self.PIL_to_CV(ima, 'bgr2')
         
         ''' Process background image '''
-        # Crop background image - from nasdaq's WikiPlot
+        # Crop background image - from WikiPlot by @nasdaq
         if lonmax <= 180 or lonmin >= 180:
             ima = Image.open(self.bkg_file)
             box = (self.convert(lonmin,'lon'), self.convert(latmax,'lat'), self.convert(lonmax,'lon'), self.convert(latmin,'lat'))
@@ -319,23 +324,17 @@ class Composite:
         color_A, color_B = self.cv_split(img2, 'bgr'), self.cv_split(img1, 'bgr')
         r, g, b = color_A['r'], color_A['g'], color_A['b']
         r1, g1, b1 = color_B['r'], color_B['g'], color_B['b']
-        # 柔光
-        # rgb转化为0~1的值
+        # composite formula by @Carl
         b = b/255+10/255
         b1 = b1/255/2
         g1 = g1/255/2
         r1 = r1/255/2
-        # 初步合成
         blue = b*b1*2+np.power((b),1.6)*(1-2*b1)
         green = b*g1*2+np.power((b),1.6)*(1-2*g1)
         red = b*r1*2+np.power((b),1.6)*(1-2*r1)
-        # calculate blue marble's total RGB
         brtb = g1+r1
-        # 按照底图亮度确定饱和度调整系数，使其针对具有较高底图亮度的陆地
         k = (1+brtb*14)
-        # 计算合成后图像的亮度
         brt = (blue+green+red)/3
-        # 增加rgb值与亮度的差，增加饱和度
         b = 255/255*brt+(blue-brt)*k+0/255
         g = 255/255*brt+(green-brt)*k+0/255
         r = brt+(red-brt)*k
