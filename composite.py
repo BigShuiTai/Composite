@@ -2,14 +2,14 @@ import os, cv2
 import numpy as np
 from PIL import Image, ImageOps
 import matplotlib
-matplotlib.use("agg")
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 
 '''
-Composite Module by BigShuitai version 0.2.1
+Composite Module by BigShuiTai version 0.2.2
 It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, and Added-background PVIS Composite
 '''
 
@@ -113,14 +113,13 @@ class Composite(object):
         image = Image.fromarray(cv2.cvtColor(CV_img, method))
         return image
     
-    def pvis_composite(self, lons, lats, C7, C13, C15):
+    def pvis_composite(self, lats, C7, C13, C15):
         '''
-        @parameter lons: longitude data
-        @parameter lats: latitude data
+        @parameter lats: latitude data for calculating linear SST
         @parameter C7: channel 7 (or similar) data
         @parameter C13: channel 13 (or similar) data
         @parameter C15: channel 15 (or similar) data
-        return type: numpy.ndarray of X, Y, Z data
+        return type: numpy.ndarray
         '''
         # composite formula by @Carl & @hhui-mt
         sst = 30 * np.cos(lats * np.pi / 180)
@@ -130,10 +129,17 @@ class Composite(object):
         syN = -1 * C13[:, 0:-1] / 50 - 2 / 5
         syN[syN < 0] = 0
         syN[syN > 1] = 1
+        from matplotlib.colors import Normalize, LinearSegmentedColormap
+        cfdata = {'green': [(0, 0, 0), (1, 1, 1)], 'red': [(0, 0, 0), (1, 1, 1)], 'blue': [(0, 0, 0), (1, 1, 1)]}
+        norm = Normalize(vmin=0, vmax=1, clip=True)
+        SM = plt.cm.ScalarMappable(norm, LinearSegmentedColormap('1', cfdata))
+        te2 = SM.to_rgba(te2)
+        te = SM.to_rgba(te)
+        syN = SM.to_rgba(syN)
         te = te * (1 - syN) + te2 * syN
         te[te<0] = 0
-        data = te
-        return lons, lats, data
+        data = te[:,:,0]
+        return data
     
     def pcolor_composite(self, pvisImage=None, infraredImage=None, resize=1, invert=False, filename=None):
         '''
@@ -228,44 +234,26 @@ class Composite(object):
         else:
             return dst
     
-    def bg_composite(self, georange, frontImageFile=None, datas=None, shapeline=False, resize=1, filename=None):
+    def bg_composite(self, georange, frontImage=None, shapeline=False, resize=1, filename=None):
         '''
-        @parameter datas: X, Y, Z data of tuple for front image for compositing
         @parameter georange: range for cropping background image, if set 'auto', ```datas``` should not None
         @parameter shapeline: if true, it will plot coastlines when plotting data; it always be used for debugging
-        @parameter frontImageFile: if ```datas``` is None, it will be used for front image for compositing
+        @parameter frontImage: it is used for front image for compositing
         @parameter resize: resize image
         @parameter filename: if it is not none, it will be the target file name for saving image
         return type: numpy.ndarray if ```filename``` is none, or boolen
         '''
         ''' Process front image '''
-        if not datas is None:
-            lons, lats, data = datas
-            if georange == 'auto':
-                latmin, latmax, lonmin, lonmax = lats.min(), lats.max(), lons.min(), lons.max()
-                self.figsize = self._calc_figsize((latmin, latmax, lonmin, lonmax))
-            else:
-                latmin, latmax, lonmin, lonmax = georange
-            f, ax = plt.subplots(figsize=self.figsize, subplot_kw=dict(projection=ccrs.PlateCarree(central_longitude=180)))
-            ax.set_extent([lonmin, lonmax, latmin, latmax], crs=ccrs.PlateCarree())
-            cmap, vmin, vmax = "gray", 0, 1
-            pcolor_kw = dict(cmap=cmap, vmin=vmin, vmax=vmax)
-            pcm = plt.pcolormesh(lons, lats, data, transform=ccrs.PlateCarree(), shading='auto', **pcolor_kw)
-            if shapeline:
-                import cartopy.feature as cfeature
-                ax.add_feature(cfeature.COASTLINE.with_scale("10m"), facecolor="None", edgecolor="white", lw=0.5)
-                ax.add_feature(cfeature.LAKES.with_scale("10m"), facecolor="None", edgecolor="white", lw=0.25)
-                ax.add_feature(cfeature.RIVERS.with_scale("10m"), facecolor="None", edgecolor="white", linestyle='-', lw=0.25)
-            plt.axis('off')
+        if isinstance(frontImage, matplotlib.figure.Figure):
+            f = frontImage
             f.canvas.draw()
-            plt.clf()
             # Get the RGBA buffer from the figure
             w, h = f.canvas.get_width_height()
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             img2 = self.PIL_to_CV(ima, 'bgr2')
-        else:
+        elif os.path.isfile(frontImage):
             ima = Image.open(frontImageFile)
             # transform image
             if georange == 'auto':
@@ -282,7 +270,9 @@ class Composite(object):
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             img2 = self.PIL_to_CV(ima, 'bgr2')
-        
+        else:
+            return False
+
         ''' Process background image '''
         # Crop background image - from WikiPlot by @nasdaq
         if lonmax <= 180 or lonmin >= 180:
