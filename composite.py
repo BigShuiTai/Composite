@@ -6,10 +6,10 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.2.2'
+__version__ = '0.2.3'
 
 '''
-Composite Module by BigShuiTai version 0.2.2
+Composite Module by BigShuiTai version 0.2.3
 It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, and Added-background PVIS Composite
 '''
 
@@ -17,6 +17,15 @@ Image.MAX_IMAGE_PIXELS = 2300000000
 
 class Composite(object):
     def __init__(self, figsize=(10,10), dpi=200):
+        '''
+        Init variables:
+            - method_imread: imread image methods
+            - method_split: split RGB data methods
+            - interpolation: interpolate methods when resize image
+            - mapsize: ```bg_composite``` of background image's size
+            - bkg_file: ```bg_composite``` of background image's route & filename
+            - dpi: Dots Per Inch, saved image's resolution
+        '''
         self.method_imread = dict(rgb=cv2.COLOR_BGR2RGB, bgr=cv2.IMREAD_COLOR, bgr2=cv2.COLOR_RGB2BGR, rgba=cv2.COLOR_BGRA2RGBA, bgra=cv2.COLOR_RGBA2BGRA)
         self.method_split = dict(rgb='rgb', bgr='bgr', rgba='rgba', bgra='bgra')
         self.interpolation = dict(s=cv2.INTER_AREA, l=cv2.INTER_CUBIC)
@@ -43,7 +52,6 @@ class Composite(object):
         figsize = (DEFAULT_WIDTH, DEFAULT_WIDTH * ratio)
         return figsize
     
-    @staticmethod
     def convert(self, latlon, intro):
         '''
         @parameter latlon: latitude or longitude, int / float type
@@ -122,6 +130,8 @@ class Composite(object):
         return type: numpy.ndarray
         '''
         # composite formula by @Carl & @hhui-mt
+        # it is applied to geostationary satellite's PVIS composite,
+        # such as HIMAWARI-8/9, GOES-16/17, METEOSAT-8/9/10/11 and so on
         sst = 30 * np.cos(lats * np.pi / 180)
         te = (C7[:, 0:-1] - sst[:, 0:-1] + 4.5) / (C13[:, 1:] - sst[:, 1:]) * 0.8
         te2 = (C13[:, 0:-1] - C15[:, 1:]) * 1.25
@@ -137,7 +147,6 @@ class Composite(object):
         te = SM.to_rgba(te)
         syN = SM.to_rgba(syN)
         te = te * (1 - syN) + te2 * syN
-        te[te<0] = 0
         data = te[:,:,0]
         return data
     
@@ -161,10 +170,6 @@ class Composite(object):
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
-                rgb = ima.split()
-                if len(rgb) == 4:
-                    r, g, b, a = rgb
-                    ima = Image.merge('RGB', (r, g, b))
                 ima = ImageOps.invert(ima)
             img1 = self.PIL_to_CV(ima, 'bgr2')
             
@@ -177,10 +182,6 @@ class Composite(object):
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
-                rgb = ima.split()
-                if len(rgb) == 4:
-                    r, g, b, a = rgb
-                    ima = Image.merge('RGB', (r, g, b))
                 ima = ImageOps.invert(ima)
             img2 = self.PIL_to_CV(ima, 'bgr2')
         elif isinstance(pvisImage, str) and isinstance(infraredImage, str):
@@ -210,6 +211,7 @@ class Composite(object):
             return False
         
         ''' Composite images '''
+        # img1 - pvis image; img2 - ir image
         # resize image
         if resize > 0:
             rows, cols = img2.shape[:-1]
@@ -234,18 +236,30 @@ class Composite(object):
         else:
             return dst
     
-    def bg_composite(self, georange, frontImage=None, shapeline=False, resize=1, filename=None):
+    def bg_composite(self, georange, pvisImage=None, infraredImage=None, resize=1, filename=None):
         '''
-        @parameter georange: range for cropping background image, if set 'auto', ```datas``` should not None
-        @parameter shapeline: if true, it will plot coastlines when plotting data; it always be used for debugging
-        @parameter frontImage: it is used for front image for compositing
+        @parameter georange: range for cropping background image
+        @parameter pvisImage: PVIS image for compositing
+        @parameter infraredImage: IR image for compositing
         @parameter resize: resize image
         @parameter filename: if it is not none, it will be the target file name for saving image
         return type: numpy.ndarray if ```filename``` is none, or boolen
         '''
+        latmin, latmax, lonmin, lonmax = georange
         ''' Process front image '''
-        if isinstance(frontImage, matplotlib.figure.Figure):
-            f = frontImage
+        if isinstance(pvisImage, matplotlib.figure.Figure) and isinstance(infraredImage, matplotlib.figure.Figure):
+            # pvis
+            f = pvisImage
+            f.canvas.draw()
+            # Get the RGBA buffer from the figure
+            w, h = f.canvas.get_width_height()
+            buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
+            buf.shape = (w, h, 3)
+            ima = Image.frombytes("RGB", (w, h), buf.tostring())
+            img1 = self.PIL_to_CV(ima, 'bgr2')
+            
+            # ir
+            f = infraredImage
             f.canvas.draw()
             # Get the RGBA buffer from the figure
             w, h = f.canvas.get_width_height()
@@ -253,12 +267,23 @@ class Composite(object):
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             img2 = self.PIL_to_CV(ima, 'bgr2')
-        elif os.path.isfile(frontImage):
-            ima = Image.open(frontImageFile)
-            # transform image
-            if georange == 'auto':
-                return False
-            latmin, latmax, lonmin, lonmax = georange
+        elif os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
+            # pvis
+            ima = Image.open(pvisImage)
+            f, ax = plt.subplots(figsize=self.figsize)
+            plt.axis('off')
+            ax.imshow(ima)
+            f.canvas.draw()
+            plt.clf()
+            # Get the RGBA buffer from the figure
+            w, h = f.canvas.get_width_height()
+            buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
+            buf.shape = (w, h, 3)
+            ima = Image.frombytes("RGB", (w, h), buf.tostring())
+            img1 = self.PIL_to_CV(ima, 'bgr2')
+                
+            # ir
+            ima = Image.open(infraredImage)
             f, ax = plt.subplots(figsize=self.figsize)
             plt.axis('off')
             ax.imshow(ima)
@@ -272,7 +297,7 @@ class Composite(object):
             img2 = self.PIL_to_CV(ima, 'bgr2')
         else:
             return False
-
+        
         ''' Process background image '''
         # Crop background image - from WikiPlot by @nasdaq
         if lonmax <= 180 or lonmin >= 180:
@@ -299,31 +324,30 @@ class Composite(object):
         buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
         buf.shape = (w, h, 3)
         ima = Image.frombytes("RGB", (w, h), buf.tostring())
-        img1 = self.PIL_to_CV(ima, 'bgr2')
+        img3 = self.PIL_to_CV(ima, 'bgr2')
         
         ''' Composite images '''
+        # img1 - pvis image; img2 - ir image; img3 - background image
         # resize image
         if resize > 0:
-            rows, cols = img2.shape[:-1]
+            rows, cols = img1.shape[:-1]
+            img1 = cv2.resize(img1, (int(rows*resize), int(cols*resize)), interpolation=self.interpolation['l'])
             img2 = cv2.resize(img2, (int(rows*resize), int(cols*resize)), interpolation=self.interpolation['l'])
-            if img1.shape > img2.shape:
-                img1 = cv2.resize(img1, img2.shape[:-1][::-1], interpolation=self.interpolation['s'])
-            elif img1.shape < img2.shape:
-                img1 = cv2.resize(img1, img2.shape[:-1][::-1], interpolation=self.interpolation['l'])
+            if img3.shape > img1.shape:
+                img3 = cv2.resize(img3, img1.shape[:-1][::-1], interpolation=self.interpolation['s'])
+            elif img3.shape < img1.shape:
+                img3 = cv2.resize(img3, img1.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B = self.cv_split(img2, 'bgr'), self.cv_split(img1, 'bgr')
-        r, g, b = color_A['r'], color_A['g'], color_A['b']
-        r1, g1, b1 = color_B['r'], color_B['g'], color_B['b']
+        color_A, color_B, color_C = self.cv_split(img1, 'bgr'), self.cv_split(img2, 'bgr'), self.cv_split(img3, 'bgr')
+        b = color_A['b'] / 255 + 15 / 255
+        r1, g1, b1 = color_C['r'] / 255 / 2, color_C['g'] / 255 / 2, color_C['b'] / 255 / 2
+        b2 = color_B['r'] / 255
         # composite formula by @Carl
-        b = b/255+10/255
-        b1 = b1/255/2
-        g1 = g1/255/2
-        r1 = r1/255/2
         blue = b*b1*2+np.power((b),1.6)*(1-2*b1)
         green = b*g1*2+np.power((b),1.6)*(1-2*g1)
         red = b*r1*2+np.power((b),1.6)*(1-2*r1)
         brtb = g1+r1
-        k = (1+brtb*14)
+        k = 1+brtb*20*(1-b2)
         brt = (blue+green+red)/3
         b = 255/255*brt+(blue-brt)*k+0/255
         g = 255/255*brt+(green-brt)*k+0/255
