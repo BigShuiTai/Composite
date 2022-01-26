@@ -1,15 +1,16 @@
 import os, cv2
 import numpy as np
+from scipy import interpolate
 from PIL import Image, ImageOps
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.2.3'
+__version__ = '0.3.0'
 
 '''
-Composite Module by BigShuiTai version 0.2.3
+Composite Module by BigShuiTai version 0.3.0
 It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, and Added-background PVIS Composite
 '''
 
@@ -44,13 +45,35 @@ class Composite(object):
     def set_central_longitude(self, longitude):
         self.central_longitude = 0 if longitude is None else longitude
     
-    @staticmethod
     def _calc_figsize(self, georange):
         DEFAULT_WIDTH = 10
         latmin, latmax, lonmin, lonmax = georange
         ratio = (latmax - latmin) / (lonmax - lonmin)
         figsize = (DEFAULT_WIDTH, DEFAULT_WIDTH * ratio)
         return figsize
+    
+    def _interpolate(self, data, nx=2, ny=2, kx=3, ky=3, autoMask=True):
+        '''
+        @parameter data: 2-D array of data
+        @parameter nx, ny: scale number
+        @parameter kx, ky: degrees of the bivariate spline
+        @parameter autoMask: whether mask array which has numpy.nan & numpy.inf
+        return type: numpy.ndarray
+        '''
+        if autoMask:
+            data = np.ma.masked_where(np.isnan(data), data)
+            data = np.ma.masked_where(np.isinf(data), data)
+        out_size_x = 1 / nx
+        out_size_y = 1 / ny
+        nx, ny = data.shape
+        x = np.arange(nx)
+        y = np.arange(ny)
+        z = data
+        interp = interpolate.RectBivariateSpline(x, y, z)
+        xx = np.arange(0, nx, out_size_x)
+        yy = np.arange(0, ny, out_size_y)
+        ndata = interp(xx, yy)
+        return ndata
     
     def convert(self, latlon, intro):
         '''
@@ -121,33 +144,85 @@ class Composite(object):
         image = Image.fromarray(cv2.cvtColor(CV_img, method))
         return image
     
-    def pvis_composite(self, lats, C7, C13, C15):
+    def pvis_composite(self, lats, datas, mode='geostationary', HCC=True):
         '''
         @parameter lats: latitude data for calculating linear SST
-        @parameter C7: channel 7 (or similar) data
-        @parameter C13: channel 13 (or similar) data
-        @parameter C15: channel 15 (or similar) data
+        @parameter datas: data for pvis-compositing
+        @parameter mode: pvis-compositing mode, str of 'geostationary', 'viirs', 'slstr', 'modis' or 'avhrr'
+        @parameter HCC: whether using high cloud correction method
         return type: numpy.ndarray
         '''
+        mode = mode.lower()
+        if mode not in ('geostationary', 'viirs', 'slstr', 'modis', 'avhrr'):
+            return np.array([])
         # composite formula by @Carl & @hhui-mt
-        # it is applied to geostationary satellite's PVIS composite,
-        # such as HIMAWARI-8/9, GOES-16/17, METEOSAT-8/9/10/11 and so on
-        sst = 30 * np.cos(lats * np.pi / 180)
-        te = (C7[:, 0:-1] - sst[:, 0:-1] + 4.5) / (C13[:, 1:] - sst[:, 1:]) * 0.8
-        te2 = (C13[:, 0:-1] - C15[:, 1:]) * 1.25
-        te2 = (15 - te2) / 15.5
-        syN = -1 * C13[:, 0:-1] / 50 - 2 / 5
-        syN[syN < 0] = 0
-        syN[syN > 1] = 1
         from matplotlib.colors import Normalize, LinearSegmentedColormap
         cfdata = {'green': [(0, 0, 0), (1, 1, 1)], 'red': [(0, 0, 0), (1, 1, 1)], 'blue': [(0, 0, 0), (1, 1, 1)]}
         norm = Normalize(vmin=0, vmax=1, clip=True)
         SM = plt.cm.ScalarMappable(norm, LinearSegmentedColormap('1', cfdata))
-        te2 = SM.to_rgba(te2)
-        te = SM.to_rgba(te)
-        syN = SM.to_rgba(syN)
+        sst = 30 * np.cos(lats * np.pi / 180)
+        if mode == 'geostationary':
+            # it is applied to geostationary satellite's PVIS composite,
+            # etc HIMAWARI-8/9, GOES-16/17, METEOSAT-8/9/10/11 and so on
+            C7, C13, C15 = datas
+            d1, d2, d3 = C7, C13, C15
+        elif mode == 'modis':
+            # it is applied to the satellite,
+            # which has MODIS (Moderate Resolution Imaging Spectroradiometer)'s PVIS composite,
+            # etc TERRA, AQUA and so on
+            C20, C31, C32 = datas
+            d1, d2, d3 = C20, C31, C32
+        elif mode == 'slstr':
+            # it is applied to the satellite,
+            # which has SLSTR (Sea and Land Surface Temperature Radiometer)'s PVIS composite,
+            # etc Sentinel-3A/3B and so on
+            S7, S8, S9 = datas
+            d1, d2, d3 = S7, S8, S9
+        elif mode == 'viirs':
+            # it is applied to the satellite,
+            # which has VIIRS (Visible Infrared Imaging Radiometer Suite)'s PVIS composite,
+            # etc JPSS, Suomi NPP and so on
+            I4, I5, M15, M16 = datas
+            d1, d2, d3, d4 = I4, I5, M15, M16
+        elif mode == 'avhhr':
+            # it is applied to the satellite,
+            # which has AVHHR (Advanced Very High Resolution Radiometer)'s PVIS composite,
+            # etc NOAA-6/8/10/15/16/17/18/19, MetOp-A/B and so on
+            B3B, B4, B5 = datas
+            d1, d2, d3 = B3B, B4, B5
+        if mode in ('geostationary', 'modis', 'slstr', 'avhrr'):
+            te = (d1[:, 0:-1] - sst[:, 0:-1] + 4.5) / (d2[:, 1:] - sst[:, 1:]) * 0.8
+            te2 = (d2[:, 0:-1] - d3[:, 1:]) * 1.25
+            te2 = (15 - te2) / 15.5
+            syN = -1 * d2[:, 0:-1] / 50 - 2 / 5
+            if HCC:
+                # high cloud correction - by @Carl
+                d23Diff_HCC = d2[:, 1:] - d3[:, 1:]
+                d23Diff_HCC = SM.to_rgba(d23Diff_HCC)[:,:,0]
+                te = np.power(te, 2-d23Diff_HCC)*np.power((2-d23Diff_HCC),1.35)
+        elif mode == 'viirs':
+            d34Diff = d3[:, 0:-1] - d4[:, 1:]
+            te = (d1[:, 1:-1] - sst[:, 1:-1] + 4.5) / (d2[:, 2:] - sst[:, 2:]) * 0.8
+            te2 = d34Diff * 1.25
+            te2 = (15 - te2) / 15.5
+            syN = -1 * d2[:, 1:-1] / 50 - 2 / 5
+            if HCC:
+                # high cloud correction - by @Carl
+                d34Diff_HCC = d3[:, 1:] - d4[:, 1:]
+                d34Diff_HCC = SM.to_rgba(d34Diff_HCC)[:,:,0]
+                d34Diff_HCC = self._interpolate(d34Diff_HCC, nx=2, ny=2)
+                te = np.power(te, 2-d34Diff_HCC)*np.power((2-d34Diff_HCC),1.35)
+        syN[syN < 0] = 0
+        syN[syN > 1] = 1
+        te2 = SM.to_rgba(te2)[:,:,0]
+        te = SM.to_rgba(te)[:,:,0]
+        syN = SM.to_rgba(syN)[:,:,0]
+        if mode == 'viirs':
+            # WARNING: M-BAND's resolution is smaller than I-BAND's,
+            # so it's necessary to interpolate M-BAND's data before composite
+            te2 = self._interpolate(te2, nx=2, ny=2)
         te = te * (1 - syN) + te2 * syN
-        data = te[:,:,0]
+        data = te
         return data
     
     def pcolor_composite(self, pvisImage=None, infraredImage=None, resize=1, invert=False, filename=None):
@@ -347,7 +422,7 @@ class Composite(object):
         green = b*g1*2+np.power((b),1.6)*(1-2*g1)
         red = b*r1*2+np.power((b),1.6)*(1-2*r1)
         brtb = g1+r1
-        k = 1+brtb*20*(1-b2)
+        k = 1+brtb*15*(1-b2)
         brt = (blue+green+red)/3
         b = 255/255*brt+(blue-brt)*k+0/255
         g = 255/255*brt+(green-brt)*k+0/255
