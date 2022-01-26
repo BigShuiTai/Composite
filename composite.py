@@ -184,9 +184,9 @@ class Composite(object):
             # etc JPSS, Suomi NPP and so on
             I4, I5, M15, M16 = datas
             d1, d2, d3, d4 = I4, I5, M15, M16
-        elif mode == 'avhhr':
+        elif mode == 'avhrr':
             # it is applied to the satellite,
-            # which has AVHHR (Advanced Very High Resolution Radiometer)'s PVIS composite,
+            # which has AVHRR (Advanced Very High Resolution Radiometer)'s PVIS composite,
             # etc NOAA-6/8/10/15/16/17/18/19, MetOp-A/B and so on
             B3B, B4, B5 = datas
             d1, d2, d3 = B3B, B4, B5
