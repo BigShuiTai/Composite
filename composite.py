@@ -1,58 +1,41 @@
 import os, cv2
+
+import scipy
 import numpy as np
-from scipy import interpolate
+
 from PIL import Image, ImageOps
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.3.0'
+__version__ = '0.4.0'
 
 '''
-Composite Module by BigShuiTai version 0.3.0
-It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, and Added-background PVIS Composite
+Composite Module by BigShuiTai version 0.4.0
+It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, Added-background PVIS Composite,
+            and data & imagery processing
 '''
 
 Image.MAX_IMAGE_PIXELS = 2300000000
 
-class Composite(object):
-    def __init__(self, figsize=(10,10), dpi=200):
-        '''
-        Init variables:
-            - method_imread: imread image methods
-            - method_split: split RGB data methods
-            - interpolation: interpolate methods when resize image
-            - mapsize: ```bg_composite``` of background image's size
-            - bkg_file: ```bg_composite``` of background image's route & filename
-            - dpi: Dots Per Inch, saved image's resolution
-        '''
+class ImageProcesser(object):
+    def __init__(self, width=10, mapsize=(21600, 10800), central_longitude=0):
+        ''' A class for processing data & imagery '''
         self.method_imread = dict(rgb=cv2.COLOR_BGR2RGB, bgr=cv2.IMREAD_COLOR, bgr2=cv2.COLOR_RGB2BGR, rgba=cv2.COLOR_BGRA2RGBA, bgra=cv2.COLOR_RGBA2BGRA)
         self.method_split = dict(rgb='rgb', bgr='bgr', rgba='rgba', bgra='bgra')
-        self.interpolation = dict(s=cv2.INTER_AREA, l=cv2.INTER_CUBIC)
-        self.central_longitude = 0
-        self.mapsize = (21600, 10800)
-        self.figsize = figsize
-        self.bkg_file = 'nasa.png'
-        self.dpi = dpi
-    
-    def set_mapsize(self, size):
-        self.mapsize = (21600, 10800) if size is None else size
-    
-    def set_bkg_file(self, file):
-        self.bkg_file = 'nasa.png' if file is None else file
-    
-    def set_central_longitude(self, longitude):
-        self.central_longitude = 0 if longitude is None else longitude
+        self.DEFAULT_WIDTH = width
+        self.mapsize = mapsize
+        self.central_longitude = central_longitude
     
     def _calc_figsize(self, georange):
-        DEFAULT_WIDTH = 10
         latmin, latmax, lonmin, lonmax = georange
         ratio = (latmax - latmin) / (lonmax - lonmin)
-        figsize = (DEFAULT_WIDTH, DEFAULT_WIDTH * ratio)
+        figsize = (self.DEFAULT_WIDTH, self.DEFAULT_WIDTH * ratio)
         return figsize
     
-    def _interpolate(self, data, nx=2, ny=2, kx=3, ky=3, autoMask=True):
+    def interpolate(self, data, nx=2, ny=2, kx=3, ky=3, autoMask=True):
         '''
         @parameter data: 2-D array of data
         @parameter nx, ny: scale number
@@ -69,11 +52,40 @@ class Composite(object):
         x = np.arange(nx)
         y = np.arange(ny)
         z = data
-        interp = interpolate.RectBivariateSpline(x, y, z)
+        interp = scipy.interpolate.RectBivariateSpline(x, y, z)
         xx = np.arange(0, nx, out_size_x)
         yy = np.arange(0, ny, out_size_y)
         ndata = interp(xx, yy)
         return ndata
+    
+    def crop(self, lons, lats, data, georange):
+        '''
+        @parameter lons, lats, data: 2-D arrays
+        @parameter georange: cropping range
+        return type: X, Y, Z of numpy.ndarray
+        '''
+        lat_min, lat_max, lon_min, lon_max = georange
+        _lon = (lons <= lon_max) & (lons >= lon_min)
+        _lat = (lats <= lat_max) & (lats >= lat_min)
+        _data = _lon & _lat
+        # e - left; f - right; g - up; h - down
+        e_lon, f_lon, g_lon, h_lon = np.where(_data)[0][0], \
+                                    np.where(_data)[0][-1] + 1, \
+                                    np.where(_data)[1][-1], \
+                                    np.where(_data)[1][0] + 1
+        e_lat, f_lat, g_lat, h_lat = np.where(_data)[0][0], \
+                                    np.where(_data)[0][-1] + 1, \
+                                    np.where(_data)[1][-1], \
+                                    np.where(_data)[1][0] + 1
+        e_data, f_data, g_data, h_data = np.where(_data)[0][0], \
+                                        np.where(_data)[0][-1] + 1, \
+                                        np.where(_data)[1][-1], \
+                                        np.where(_data)[1][0] + 1
+        # crop data
+        lons, lats, data = lons[e_lon:f_lon, g_lon:h_lon], \
+                        lats[e_lat:f_lat, g_lat:h_lat], \
+                        data[e_data:f_data, g_data:h_data]
+        return lons, lats, data
     
     def convert(self, latlon, intro):
         '''
@@ -143,6 +155,24 @@ class Composite(object):
         method = self.method_imread['rgb'] if method is None else self.method_imread[method]
         image = Image.fromarray(cv2.cvtColor(CV_img, method))
         return image
+
+class Compositer(object):
+    def __init__(self, figsize=(10,10), dpi=200, width=10, mapsize=(21600, 10800), central_longitude=0):
+        '''
+        Init variables:
+            - method_imread: imread image methods
+            - method_split: split RGB data methods
+            - interpolation: interpolate methods when resize image
+            - mapsize: ```bg_composite``` of background image's size
+            - bkg_file: ```bg_composite``` of background image's route & filename
+            - dpi: Dots Per Inch, saved image's resolution
+        '''
+        self.interpolation = dict(s=cv2.INTER_AREA, l=cv2.INTER_CUBIC)
+        self.figsize = figsize
+        self.bkg_file = 'nasa.png'
+        self.dpi = dpi
+        self.mapsize = mapsize
+        self.ImageProcesser = ImageProcesser(width, mapsize, central_longitude)
     
     def pvis_composite(self, lats, datas, mode='geostationary', HCC=True):
         '''
@@ -210,7 +240,7 @@ class Composite(object):
                 # high cloud correction - by @Carl
                 d34Diff_HCC = d3[:, 1:] - d4[:, 1:]
                 d34Diff_HCC = SM.to_rgba(d34Diff_HCC)[:,:,0]
-                d34Diff_HCC = self._interpolate(d34Diff_HCC, nx=2, ny=2)
+                d34Diff_HCC = self.ImageProcesser.interpolate(d34Diff_HCC, nx=2, ny=2)
                 te = np.power(te, 2-d34Diff_HCC)*np.power((2-d34Diff_HCC),1.35)
         syN[syN < 0] = 0
         syN[syN > 1] = 1
@@ -220,7 +250,7 @@ class Composite(object):
         if mode == 'viirs':
             # WARNING: M-BAND's resolution is smaller than I-BAND's,
             # so it's necessary to interpolate M-BAND's data before composite
-            te2 = self._interpolate(te2, nx=2, ny=2)
+            te2 = self.ImageProcesser.interpolate(te2, nx=2, ny=2)
         te = te * (1 - syN) + te2 * syN
         data = te
         return data
@@ -246,7 +276,7 @@ class Composite(object):
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
                 ima = ImageOps.invert(ima)
-            img1 = self.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
             
             # ir
             f = infraredImage
@@ -258,7 +288,7 @@ class Composite(object):
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
                 ima = ImageOps.invert(ima)
-            img2 = self.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
         elif isinstance(pvisImage, str) and isinstance(infraredImage, str):
             if os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
                 # pvis
@@ -269,7 +299,7 @@ class Composite(object):
                         r, g, b, a = rgb
                         ima = Image.merge('RGB', (r, g, b))
                     ima = ImageOps.invert(ima)
-                img1 = self.PIL_to_CV(ima, 'bgr2')
+                img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
                 
                 # ir
                 ima = Image.open(infraredImage)
@@ -279,7 +309,7 @@ class Composite(object):
                         r, g, b, a = rgb
                         ima = Image.merge('RGB', (r, g, b))
                     ima = ImageOps.invert(ima)
-                img2 = self.PIL_to_CV(ima, 'bgr2')
+                img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
             else:
                 return False
         else:
@@ -296,7 +326,7 @@ class Composite(object):
             elif img1.shape < img2.shape:
                 img1 = cv2.resize(img1, img2.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B = self.cv_split(img1, 'bgr'), self.cv_split(img2, 'bgr')
+        color_A, color_B = self.ImageProcesser.cv_split(img1, 'bgr'), self.ImageProcesser.cv_split(img2, 'bgr')
         r, g, b = color_A['r'], color_A['g'], color_A['b']
         r1, g1, b1 = color_B['r'], color_B['g'], color_B['b']
         # merge image
@@ -331,7 +361,7 @@ class Composite(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img1 = self.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
             
             # ir
             f = infraredImage
@@ -341,7 +371,7 @@ class Composite(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img2 = self.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
         elif os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
             # pvis
             ima = Image.open(pvisImage)
@@ -355,7 +385,7 @@ class Composite(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img1 = self.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
                 
             # ir
             ima = Image.open(infraredImage)
@@ -369,7 +399,7 @@ class Composite(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img2 = self.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
         else:
             return False
         
@@ -377,11 +407,11 @@ class Composite(object):
         # Crop background image - from WikiPlot by @nasdaq
         if lonmax <= 180 or lonmin >= 180:
             ima = Image.open(self.bkg_file)
-            box = (self.convert(lonmin,'lon'), self.convert(latmax,'lat'), self.convert(lonmax,'lon'), self.convert(latmin,'lat'))
+            box = (self.ImageProcesser.convert(lonmin,'lon'), self.ImageProcesser.convert(latmax,'lat'), self.ImageProcesser.convert(lonmax,'lon'), self.ImageProcesser.convert(latmin,'lat'))
             ima = ima.crop(box)
         else:
-            pixelleft, pixelright = self.convert(lonmin, 'lon'), self.convert(lonmax, 'lon')
-            upper, lower = self.convert(latmax, 'lat'), self.convert(latmin, 'lat')
+            pixelleft, pixelright = self.ImageProcesser.convert(lonmin, 'lon'), self.ImageProcesser.convert(lonmax, 'lon')
+            upper, lower = self.ImageProcesser.convert(latmax, 'lat'), self.ImageProcesser.convert(latmin, 'lat')
             ima = Image.new('RGB', (self.mapsize[0] - pixelleft + pixelright, lower - upper))
             imafrom = Image.open(self.bkg_file)
             apart = imafrom.crop((pixelleft, upper, self.mapsize[0], lower))
@@ -399,7 +429,7 @@ class Composite(object):
         buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
         buf.shape = (w, h, 3)
         ima = Image.frombytes("RGB", (w, h), buf.tostring())
-        img3 = self.PIL_to_CV(ima, 'bgr2')
+        img3 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
         
         ''' Composite images '''
         # img1 - pvis image; img2 - ir image; img3 - background image
@@ -413,7 +443,7 @@ class Composite(object):
             elif img3.shape < img1.shape:
                 img3 = cv2.resize(img3, img1.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B, color_C = self.cv_split(img1, 'bgr'), self.cv_split(img2, 'bgr'), self.cv_split(img3, 'bgr')
+        color_A, color_B, color_C = self.ImageProcesser.cv_split(img1, 'bgr'), self.ImageProcesser.cv_split(img2, 'bgr'), self.ImageProcesser.cv_split(img3, 'bgr')
         b = color_A['b'] / 255 + 15 / 255
         r1, g1, b1 = color_C['r'] / 255 / 2, color_C['g'] / 255 / 2, color_C['b'] / 255 / 2
         b2 = color_B['r'] / 255
