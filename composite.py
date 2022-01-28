@@ -6,7 +6,6 @@ import numpy as np
 from PIL import Image, ImageOps
 
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
