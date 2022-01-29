@@ -1,7 +1,7 @@
 import os, cv2
 
-import scipy
 import numpy as np
+from scipy.interpolate import RectBivariateSpline
 
 from PIL import Image, ImageOps
 
@@ -51,7 +51,7 @@ class ImageProcesser(object):
         x = np.arange(nx)
         y = np.arange(ny)
         z = data
-        interp = scipy.interpolate.RectBivariateSpline(x, y, z)
+        interp = RectBivariateSpline(x, y, z)
         xx = np.arange(0, nx, out_size_x)
         yy = np.arange(0, ny, out_size_y)
         ndata = interp(xx, yy)
