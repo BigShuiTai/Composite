@@ -68,21 +68,14 @@ class ImageProcesser(object):
         _lat = (lats <= lat_max) & (lats >= lat_min)
         _data = _lon & _lat
         # e - left; f - right; g - up; h - down
-        e_lon, f_lon, g_lon, h_lon = np.where(_data)[0][0], \
-                                    np.where(_data)[0][-1] + 1, \
-                                    np.where(_data)[1][-1], \
-                                    np.where(_data)[1][0] + 1
-        e_lat, f_lat, g_lat, h_lat = np.where(_data)[0][0], \
-                                    np.where(_data)[0][-1] + 1, \
-                                    np.where(_data)[1][-1], \
-                                    np.where(_data)[1][0] + 1
-        e_data, f_data, g_data, h_data = np.where(_data)[0][0], \
-                                        np.where(_data)[0][-1] + 1, \
-                                        np.where(_data)[1][-1], \
-                                        np.where(_data)[1][0] + 1
+        _x = [np.where(_data)[0][0], np.where(_data)[0][-1]]
+        _y = [np.where(_data)[1][-1], np.where(_data)[1][0]]
+        _x.sort(); _y.sort()
+        print(_x, _y)
+        e_data, f_data, g_data, h_data = _x[0], _x[-1] + 1, _y[0], _y[-1] + 1
         # crop data
-        lons, lats, data = lons[e_lon:f_lon, g_lon:h_lon], \
-                        lats[e_lat:f_lat, g_lat:h_lat], \
+        lons, lats, data = lons[e_data:f_data, g_data:h_data], \
+                        lats[e_data:f_data, g_data:h_data], \
                         data[e_data:f_data, g_data:h_data]
         return lons, lats, data
     
