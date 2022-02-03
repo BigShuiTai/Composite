@@ -57,27 +57,43 @@ class ImageProcesser(object):
         ndata = interp(xx, yy)
         return ndata
     
-    def crop(self, lons, lats, data, georange):
+    def crop(self, x, y, z, _range):
         '''
-        @parameter lons, lats, data: 2-D arrays
-        @parameter georange: cropping range
-        return type: X, Y, Z of numpy.ndarray
+        @parameter x, y: 1-D / 2-D arrays, one of the shape should be same as the other one
+        @parameter z: 2-D arrays, the shape should be (x, y) if x, y are 1-D arrays, be same as (x/y)'s shape otherwise
+        @parameter _range: a range for cropping array(s)
+        return type: [X, Y, ]Z of numpy.ndarray(s)
         '''
-        lat_min, lat_max, lon_min, lon_max = georange
-        _lon = (lons <= lon_max) & (lons >= lon_min)
-        _lat = (lats <= lat_max) & (lats >= lat_min)
-        _data = _lon & _lat
-        # e - left; f - right; g - up; h - down
-        _x = [np.where(_data)[0][0], np.where(_data)[0][-1]]
-        _y = [np.where(_data)[1][-1], np.where(_data)[1][0]]
+        if not x.shape == y.shape:
+            raise ValueError("x/y array's shape should be same as the other one")
+        if not len(x.shape) == 2:
+            if not np.meshgrid(x, y).shape == z.shape:
+                raise ValueError("z array's shape should be same as (x/y)'s shape")
+            # 1-D array's crop
+            y_min, y_max, x_min, x_max = _range
+            _l = np.where(x >= x_min)[0][0]
+            _r = np.where(x <= x_max)[0][-1]
+            _d = np.where(y >= y_min)[0][-1]
+            _u = np.where(y <= y_max)[0][0]
+            _x = [_l, _r]
+            _y = [_u, _d]
+            _x.sort(); _y.sort()
+            # e - left; f - right; g - up; h - down
+            e, f = _x; g, h = _y
+            z = z[e:f+1, g:h+1]
+            return z
+        # 2-D array's crop
+        y_min, y_max, x_min, x_max = _range
+        __x = (x <= x_max) & (x >= x_min)
+        __y = (y <= y_max) & (y >= y_min)
+        __z = __x & __y
+        _x = [np.where(__z)[0][0], np.where(__z)[0][-1]]
+        _y = [np.where(__z)[1][-1], np.where(__z)[1][0]]
         _x.sort(); _y.sort()
-        print(_x, _y)
-        e_data, f_data, g_data, h_data = _x[0], _x[-1] + 1, _y[0], _y[-1] + 1
-        # crop data
-        lons, lats, data = lons[e_data:f_data, g_data:h_data], \
-                        lats[e_data:f_data, g_data:h_data], \
-                        data[e_data:f_data, g_data:h_data]
-        return lons, lats, data
+        # e - left; f - right; g - up; h - down
+        e, f, g, h = _x[0], _x[-1] + 1, _y[0], _y[-1] + 1
+        x, y, z = x[e:f, g:h], y[e:f, g:h], z[e:f, g:h]
+        return x, y, z
     
     def convert(self, latlon, intro):
         '''
