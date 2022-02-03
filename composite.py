@@ -82,6 +82,8 @@ class ImageProcesser(object):
             e, f = _x; g, h = _y
             z = z[e:f+1, g:h+1]
             return z
+        if len(x.shape) > 2 or len(y.shape) > 2 or len(z.shape) > 2:
+            raise ValueError("x/y array should be a 1-D/2-D array, z should be a 2-D array")
         # 2-D array's crop
         y_min, y_max, x_min, x_max = _range
         __x = (x <= x_max) & (x >= x_min)
