@@ -19,7 +19,7 @@ It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, Ad
 
 Image.MAX_IMAGE_PIXELS = 2300000000
 
-class ImageProcesser(object):
+class ImageProcessor(object):
     def __init__(self, width=10, mapsize=(21600, 10800), central_longitude=0):
         ''' A class for processing data & imagery '''
         self.method_imread = dict(rgb=cv2.COLOR_BGR2RGB, bgr=cv2.IMREAD_COLOR, bgr2=cv2.COLOR_RGB2BGR, rgba=cv2.COLOR_BGRA2RGBA, bgra=cv2.COLOR_RGBA2BGRA)
@@ -182,7 +182,7 @@ class Compositer(object):
         self.bkg_file = 'nasa.png'
         self.dpi = dpi
         self.mapsize = mapsize
-        self.ImageProcesser = ImageProcesser(width, mapsize, central_longitude)
+        self.ImageProcessor = ImageProcessor(width, mapsize, central_longitude)
     
     def pvis_composite(self, lats, datas, mode='geostationary', HCC=True):
         '''
@@ -250,7 +250,7 @@ class Compositer(object):
                 # high cloud correction - by @Carl
                 d34Diff_HCC = d3[:, 1:] - d4[:, 1:]
                 d34Diff_HCC = SM.to_rgba(d34Diff_HCC)[:,:,0]
-                d34Diff_HCC = self.ImageProcesser.interpolate(d34Diff_HCC, nx=2, ny=2)
+                d34Diff_HCC = self.ImageProcessor.interpolate(d34Diff_HCC, nx=2, ny=2)
                 te = np.power(te, 2-d34Diff_HCC)*np.power((2-d34Diff_HCC),1.35)
         syN[syN < 0] = 0
         syN[syN > 1] = 1
@@ -260,7 +260,7 @@ class Compositer(object):
         if mode == 'viirs':
             # WARNING: M-BAND's resolution is smaller than I-BAND's,
             # so it's necessary to interpolate M-BAND's data before composite
-            te2 = self.ImageProcesser.interpolate(te2, nx=2, ny=2)
+            te2 = self.ImageProcessor.interpolate(te2, nx=2, ny=2)
         te = te * (1 - syN) + te2 * syN
         data = te
         return data
@@ -286,7 +286,7 @@ class Compositer(object):
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
                 ima = ImageOps.invert(ima)
-            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
             
             # ir
             f = infraredImage
@@ -298,7 +298,7 @@ class Compositer(object):
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
             if invert:
                 ima = ImageOps.invert(ima)
-            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
         elif isinstance(pvisImage, str) and isinstance(infraredImage, str):
             if os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
                 # pvis
@@ -309,7 +309,7 @@ class Compositer(object):
                         r, g, b, a = rgb
                         ima = Image.merge('RGB', (r, g, b))
                     ima = ImageOps.invert(ima)
-                img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+                img1 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
                 
                 # ir
                 ima = Image.open(infraredImage)
@@ -319,7 +319,7 @@ class Compositer(object):
                         r, g, b, a = rgb
                         ima = Image.merge('RGB', (r, g, b))
                     ima = ImageOps.invert(ima)
-                img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+                img2 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
             else:
                 return False
         else:
@@ -336,7 +336,7 @@ class Compositer(object):
             elif img1.shape < img2.shape:
                 img1 = cv2.resize(img1, img2.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B = self.ImageProcesser.cv_split(img1, 'bgr'), self.ImageProcesser.cv_split(img2, 'bgr')
+        color_A, color_B = self.ImageProcessor.cv_split(img1, 'bgr'), self.ImageProcessor.cv_split(img2, 'bgr')
         r, g, b = color_A['r'], color_A['g'], color_A['b']
         r1, g1, b1 = color_B['r'], color_B['g'], color_B['b']
         # merge image
@@ -371,7 +371,7 @@ class Compositer(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
             
             # ir
             f = infraredImage
@@ -381,7 +381,7 @@ class Compositer(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
         elif os.path.isfile(pvisImage) and os.path.isfile(infraredImage):
             # pvis
             ima = Image.open(pvisImage)
@@ -395,7 +395,7 @@ class Compositer(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img1 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img1 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
                 
             # ir
             ima = Image.open(infraredImage)
@@ -409,7 +409,7 @@ class Compositer(object):
             buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
             buf.shape = (w, h, 3)
             ima = Image.frombytes("RGB", (w, h), buf.tostring())
-            img2 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+            img2 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
         else:
             return False
         
@@ -417,11 +417,11 @@ class Compositer(object):
         # Crop background image - from WikiPlot by @nasdaq
         if lonmax <= 180 or lonmin >= 180:
             ima = Image.open(self.bkg_file)
-            box = (self.ImageProcesser.convert(lonmin,'lon'), self.ImageProcesser.convert(latmax,'lat'), self.ImageProcesser.convert(lonmax,'lon'), self.ImageProcesser.convert(latmin,'lat'))
+            box = (self.ImageProcessor.convert(lonmin,'lon'), self.ImageProcessor.convert(latmax,'lat'), self.ImageProcessor.convert(lonmax,'lon'), self.ImageProcessor.convert(latmin,'lat'))
             ima = ima.crop(box)
         else:
-            pixelleft, pixelright = self.ImageProcesser.convert(lonmin, 'lon'), self.ImageProcesser.convert(lonmax, 'lon')
-            upper, lower = self.ImageProcesser.convert(latmax, 'lat'), self.ImageProcesser.convert(latmin, 'lat')
+            pixelleft, pixelright = self.ImageProcessor.convert(lonmin, 'lon'), self.ImageProcessor.convert(lonmax, 'lon')
+            upper, lower = self.ImageProcessor.convert(latmax, 'lat'), self.ImageProcessor.convert(latmin, 'lat')
             ima = Image.new('RGB', (self.mapsize[0] - pixelleft + pixelright, lower - upper))
             imafrom = Image.open(self.bkg_file)
             apart = imafrom.crop((pixelleft, upper, self.mapsize[0], lower))
@@ -439,7 +439,7 @@ class Compositer(object):
         buf = np.fromstring(f.canvas.tostring_rgb(), dtype=np.uint8)
         buf.shape = (w, h, 3)
         ima = Image.frombytes("RGB", (w, h), buf.tostring())
-        img3 = self.ImageProcesser.PIL_to_CV(ima, 'bgr2')
+        img3 = self.ImageProcessor.PIL_to_CV(ima, 'bgr2')
         
         ''' Composite images '''
         # img1 - pvis image; img2 - ir image; img3 - background image
@@ -453,7 +453,7 @@ class Compositer(object):
             elif img3.shape < img1.shape:
                 img3 = cv2.resize(img3, img1.shape[:-1][::-1], interpolation=self.interpolation['l'])
         # get RGB
-        color_A, color_B, color_C = self.ImageProcesser.cv_split(img1, 'bgr'), self.ImageProcesser.cv_split(img2, 'bgr'), self.ImageProcesser.cv_split(img3, 'bgr')
+        color_A, color_B, color_C = self.ImageProcessor.cv_split(img1, 'bgr'), self.ImageProcessor.cv_split(img2, 'bgr'), self.ImageProcessor.cv_split(img3, 'bgr')
         b = color_A['b'] / 255 + 15 / 255
         r1, g1, b1 = color_C['r'] / 255 / 2, color_C['g'] / 255 / 2, color_C['b'] / 255 / 2
         b2 = color_B['r'] / 255
