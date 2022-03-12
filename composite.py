@@ -9,10 +9,10 @@ import matplotlib
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 
-__version__ = '0.4.0'
+__version__ = '0.4.1'
 
 '''
-Composite Module by BigShuiTai version 0.4.0
+Composite Module by BigShuiTai version 0.4.1
 It supports Pesudo-visible (PVIS) Composite, Pesudo-color (PCOLOR) Composite, Added-background PVIS Composite,
             and data & imagery processing
 '''
@@ -176,6 +176,7 @@ class Compositer(object):
             - mapsize: ```bg_composite``` of background image's size
             - bkg_file: ```bg_composite``` of background image's route & filename
             - dpi: Dots Per Inch, saved image's resolution
+            - central_longitude: for cropping background image
         '''
         self.interpolation = dict(s=cv2.INTER_AREA, l=cv2.INTER_CUBIC)
         self.figsize = figsize
@@ -193,7 +194,7 @@ class Compositer(object):
         return type: numpy.ndarray
         '''
         mode = mode.lower()
-        if mode not in ('geostationary', 'viirs', 'slstr', 'modis', 'avhrr'):
+        if mode not in ('geostationary', 'meteosat', 'msg', 'viirs', 'slstr', 'modis', 'avhrr'):
             return np.array([])
         # composite formula by @Carl & @hhui-mt
         from matplotlib.colors import Normalize, LinearSegmentedColormap
@@ -203,7 +204,7 @@ class Compositer(object):
         sst = 30 * np.cos(lats * np.pi / 180)
         if mode == 'geostationary':
             # it is applied to geostationary satellite's PVIS composite,
-            # etc HIMAWARI-8/9, GOES-16/17, METEOSAT-8/9/10/11 and so on
+            # etc HIMAWARI-8/9, GOES-16/17, GK-2A, METEOSAT-8/9/10/11 and so on
             C7, C13, C15 = datas
             d1, d2, d3 = C7, C13, C15
         elif mode == 'modis':
@@ -456,19 +457,22 @@ class Compositer(object):
         color_A, color_B, color_C = self.ImageProcessor.cv_split(img1, 'bgr'), self.ImageProcessor.cv_split(img2, 'bgr'), self.ImageProcessor.cv_split(img3, 'bgr')
         b = color_A['b'] / 255 + 15 / 255
         r1, g1, b1 = color_C['r'] / 255 / 2, color_C['g'] / 255 / 2, color_C['b'] / 255 / 2
-        b2 = color_B['r'] / 255
+        b2 = color_B['b'] / 255
         # composite formula by @Carl
-        blue = b*b1*2+np.power((b),1.6)*(1-2*b1)
-        green = b*g1*2+np.power((b),1.6)*(1-2*g1)
-        red = b*r1*2+np.power((b),1.6)*(1-2*r1)
-        brtb = g1+r1
-        k = 1+brtb*15*(1-b2)
-        brt = (blue+green+red)/3
-        b = 255/255*brt+(blue-brt)*k+0/255
-        g = 255/255*brt+(green-brt)*k+0/255
-        r = brt+(red-brt)*k
+        blue = b * b1 * 2 + np.power((b), 1.6) * (1 - 2 * b1)
+        green = b * g1 * 2 + np.power((b), 1.6) * (1 - 2 * g1)
+        red = b * r1 * 2 + np.power((b), 1.6) * (1 - 2 * r1)
+        brtb = g1 + r1
+        k = 1 + brtb * 15 * (1 - b2)
+        brt = (blue + green + red) / 3
+        blue = (brt + (blue - brt) * k) * 0.98
+        green = brt + (green - brt) * k
+        red = brt + (red - brt) * k
+        sig = np.clip(green, 0.1, 0.3) - 0.1
+        red = red * (0.2 + sig * 4)
+        green = green * (0.8 + sig)
         # merge image
-        dst = cv2.merge([b, g, r])
+        dst = cv2.merge([blue, green, red])
         
         ''' Save figure '''
         if not filename is None:
